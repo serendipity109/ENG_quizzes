@@ -4,7 +4,7 @@ services:
   es:
     image: docker.elastic.co/elasticsearch/elasticsearch:${STACK_VERSION}
     volumes:
-      - /Users/adam/Documents/elastic/esdata:/usr/share/elasticsearch/data
+      - C:\ENG_quizzes\esdata:/usr/share/elasticsearch/data
     ports:
       - ${ES_PORT}:9200
     environment:
@@ -22,7 +22,7 @@ services:
   kibana:
     image: docker.elastic.co/kibana/kibana:${STACK_VERSION}
     volumes:
-      - /Users/adam/Documents/elastic/kibanadata:/usr/share/kibana/data
+      - C:\ENG_quizzes\kibanadata:/usr/share/kibana/data
     ports:
       - ${KIBANA_PORT}:5601
     environment:
