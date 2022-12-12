@@ -18,7 +18,7 @@ services:
       memlock:
         soft: -1
         hard: -1
-
+# 
   kibana:
     image: docker.elastic.co/kibana/kibana:${STACK_VERSION}
     volumes:

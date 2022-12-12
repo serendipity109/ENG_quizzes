@@ -1,5 +1,6 @@
 from elasticsearch import Elasticsearch
 from elasticsearch import helpers
+import pandas as pd
 import string
 import json
 import re
@@ -16,10 +17,9 @@ class ES(Elasticsearch):
             verify_certs=False,
             ssl_show_warn=False
         )
-        print(es.info())
-        self.create()
+        print(self.es.info())
     
-    def create(self):
+    def create(self, indices=['english', 'english1', 'english2']):
         body = {
             "settings": {
                 "number_of_shards": 3,
@@ -36,10 +36,16 @@ class ES(Elasticsearch):
             }
             }
         }
-        self.es.indices.create(index='english', body=body)
+        for index in indices:
+            try:
+                self.es.indices.create(index=index, body=body)
+                print(f"Cretae index {index}.")
+            except:
+                print(f"Index {index} exists, ignored.")
+                pass
         
     def load_from_corpus(self, path='corpus.json'):
-        def check(_id):
+        def check(_id, _index='english'):
             query = {
                 "query": {
                     "bool": {
@@ -51,10 +57,10 @@ class ES(Elasticsearch):
                     }
                 }
             }
-            result = es.search(index='english', body=query)
+            result = self.es.search(index=_index, body=query)
             return result['hits']['total']['value'] 
-    
-        with open(path, 'r')as f:
+            
+        with open(path, 'r', encoding="utf-8")as f:
             data = f.read()
             corpus = eval(data)
             f.close()
@@ -62,6 +68,7 @@ class ES(Elasticsearch):
         def load_datas():
             actions = list()
             for idx in corpus.keys():
+                grade = idx[0]
                 flag = 0 # cloze
                 for i, parag in enumerate(corpus[idx]):
                     parag = parag.replace("'s", " is").replace("'re", " are").replace("'t", " not")
@@ -75,42 +82,49 @@ class ES(Elasticsearch):
                         index = 'h-' + idx + '-c-' + str(i)
                     else: # reading
                         index = 'h-' + idx + '-r-' + str(i-n_cloze)
-                    if check(index) > 0:
-                        continue
-                    actions.append({
-                        "_index": "english",
-                        "_op_type": "index",
-                        "_source": {
-                            "index": index,
-                            "content": parag
-                        }
-                    })
+                    if check(index) == 0:
+                        actions.append({
+                            "_index": "english",
+                            "_op_type": "index",
+                            "_source": {
+                                "index": index,
+                                "content": parag
+                            }
+                        })
+                    if check(index, "english" + grade) == 0:
+                        actions.append({
+                            "_index": "english" + grade,
+                            "_op_type": "index",
+                            "_source": {
+                                "index": index,
+                                "content": parag
+                            }
+                        })            
             return actions
+
         data = load_datas()
-        helpers.bulk(self.es, data)
+        return helpers.bulk(self.es, data)
         
-    def get_corpus(self, input='康1-1~1-3'):
-        def read_kw(path):
-            with open(path, 'r')as f:
-                lines = f.readlines()
-                f.close()
-            kws = []
-            for line in lines:
-                if len(line) > 0 and (line[0] in string.ascii_uppercase\
-                                      or line[0] in string.ascii_lowercase):
-                    kws.append(line.replace('\n', ''))
-            return kws
-        kws = read_kw(f'./正在學的單字/{input}.txt')
+    def read_kw(self, path='正在學的單字\康1-1~1-3.txt'):
+        with open(path, 'r', encoding="utf-8")as f:
+            lines = f.readlines()
+            f.close()
+        kws = []
+        for line in lines:
+            if len(line) > 0 and (line[0] in string.ascii_uppercase\
+                                or line[0] in string.ascii_lowercase):
+                kws.append(line.replace('\n', ''))
         return kws
     
-    def inference(self, input):
+    def inference(self, kws):
         hm = {}
+
         def get_query(content, q):
             if q == 'q1':
                 query = {"query": 
-                         {"bool": 
-                          {"must":
-                           {"term": 
+                        {"bool": 
+                        {"must":
+                        {"term": 
                             {"content": content
                                 }
                             }
@@ -119,27 +133,71 @@ class ES(Elasticsearch):
                 }
             elif q == 'q2':
                 query = {"query": 
-                         {"match_phrase":
-                          {"content": content
+                        {"match_phrase":
+                        {"content": content
                     }
-                  }
+                }
                 }
             return query
 
-        # result = es.search(index='english', body=get_query('zebras', 'q1'), size=1000) size is maximun number of hits
+        # size is maximun number of hits
+        # result = self.es.search(index='english', body=get_query('zebras', 'q1'), size=1000) 
 
         for kw in kws:
             if " " in kw:
                 q = 'q2'
             else:
                 q = 'q1'
-            result = es.search(index='english', body=get_query(kw, q), size=1000)
+            result = self.es.search(index='english', body=get_query(kw, q), size=1000)
             for hit in result['hits']['hits']:
                 if hit['_id'] in hm:
                     hm[hit['_id']].append(kw)
                 else:
                     hm[hit['_id']] = [kw]
+        return hm
     
+    def output_csv(self, hm, nrows=100, oup_path='out.csv'):
+        grades = {
+            "出版社": [],
+            "第幾測": [],
+            "第幾課": [],
+            "第幾篇文章": [],
+            "相同但不重複的字": [],
+            "幾個字": [],
+        }
+        
+        df = pd.DataFrame(grades)
+
+        for _id in sorted(hm, key=lambda _id: len(hm[_id]), reverse=True):
+            res = self.es.get(index="english", id=_id)
+            index = res['_source']['index'] # 文章索引
+            publishing, grade, lesson, c_r, num = index.split('-')
+            df = df.append({
+                "出版社": "翰林",
+                "第幾測": grade,
+                "第幾課": lesson,
+                "第幾篇文章": c_r + num,
+                "相同但不重複的字": hm[_id],
+                "幾個字": str(len(hm[_id])),
+            }, ignore_index=True)
+            if len(df) >= 100:
+                break
+        print(df)
+        df.to_csv(oup_path, index=False)
+
+    def top(self, hm, n=3):
+        count = 0
+        for _id in sorted(hm, key=lambda _id: len(hm[_id]), reverse=True):
+            print(_id, hm[_id], len(hm[_id]))
+            count +=1
+            if count >= n: break
+    
+    def inspect(self, index, id):
+        return self.es.get(index=index, id=id)
+
+    def delete_index(self, index):
+        return self.es.options(ignore_status=[400,404]).indices.delete(index=index)
+
 def annator(inp):
     inp = inp.replace(':', ' ').replace(')', ' ').replace('(', ' ')
     inp = inp.strip()
