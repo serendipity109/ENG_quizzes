@@ -173,7 +173,7 @@ class ES(Elasticsearch):
             index = res['_source']['index'] # 文章索引
             publishing, grade, lesson, c_r, num = index.split('-')
             df = df.append({
-                "出版社": "翰林",
+                "出版社": publishing,
                 "第幾測": grade,
                 "第幾課": lesson,
                 "第幾篇文章": c_r + num,
