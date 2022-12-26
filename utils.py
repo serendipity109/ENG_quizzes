@@ -39,12 +39,13 @@ class ES(Elasticsearch):
         for index in indices:
             try:
                 self.es.indices.create(index=index, body=body)
-                print(f"Cretae index {index}.")
+                print(f"Create index {index}.")
             except:
                 print(f"Index {index} exists, ignored.")
                 pass
         
-    def load_from_corpus(self, path='corpus.json'):
+    def load_from_corpus(self, path='1_corpus.json'):
+        publisher = path.split('_')[0]
         def check(_id, _index='english'):
             query = {
                 "query": {
@@ -79,9 +80,9 @@ class ES(Elasticsearch):
                         n_cloze = i
                         continue
                     if flag == 0: # cloze
-                        index = 'h-' + idx + '-c-' + str(i)
+                        index = publisher + '-' + idx + '-c-' + str(i)
                     else: # reading
-                        index = 'h-' + idx + '-r-' + str(i-n_cloze)
+                        index = publisher + '-' + idx + '-r-' + str(i-n_cloze)
                     if check(index) == 0:
                         actions.append({
                             "_index": "english",
